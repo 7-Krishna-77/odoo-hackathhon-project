@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  @apply bg-base-900 text-slate-200 font-sans antialiased;
+  background-image:
+    radial-gradient(circle at 15% 0%, rgba(99, 102, 241, 0.08), transparent 40%),
+    radial-gradient(circle at 85% 100%, rgba(16, 185, 129, 0.06), transparent 40%);
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-panel-800 border border-panel-border rounded-2xl shadow-glass backdrop-blur-md;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold;
+  }
+  .pill-positive { @apply bg-emerald-soft text-emerald-pill; }
+  .pill-warn     { @apply bg-amber-soft text-amber-warn; }
+  .pill-bad      { @apply bg-crimson-soft text-crimson-bad; }
+  .pill-neutral  { @apply bg-indigo-soft text-indigo-accent; }
+
+  .btn-primary {
+    @apply bg-indigo-accent hover:bg-indigo-500 text-white font-semibold px-4 py-2 rounded-xl
+           transition shadow-glow disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none;
+  }
+  .btn-ghost {
+    @apply bg-white/5 hover:bg-white/10 text-slate-200 font-medium px-4 py-2 rounded-xl transition
+           border border-panel-border;
+  }
+  .input-field {
+    @apply w-full bg-white/5 border border-panel-border rounded-xl px-3 py-2 text-sm
+           placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-accent/60;
+  }
+  .nav-link {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400
+           hover:text-slate-100 hover:bg-white/5 transition cursor-pointer;
+  }
+  .nav-link-active {
+    @apply text-white bg-indigo-soft border border-indigo-accent/40;
+  }
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { @apply bg-white/10 rounded-full; }
+::-webkit-scrollbar-track { background: transparent; }

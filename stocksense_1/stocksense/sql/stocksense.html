@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>StockSense — Simple Inventory Manager</title>
+<style>
+  :root{
+    --bg:#0b0f1a; --panel:#1a2033; --border:#2a3149;
+    --indigo:#6366f1; --indigo-soft:rgba(99,102,241,.15);
+    --emerald:#10b981; --emerald-soft:rgba(16,185,129,.15);
+    --amber:#f59e0b; --amber-soft:rgba(245,158,11,.15);
+    --crimson:#ef4444; --crimson-soft:rgba(239,68,68,.15);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:#e2e8f0; font-family:-apple-system,Segoe UI,Roboto,sans-serif;}
+  .app{display:flex; min-height:100vh;}
+  aside{width:220px; background:var(--panel); border-right:1px solid var(--border); padding:20px 0; flex-shrink:0;}
+  aside h1{font-size:16px; padding:0 20px; margin:0 0 24px;}
+  aside h1 span{color:#64748b; font-weight:400; font-size:11px; display:block;}
+  .navlink{padding:10px 20px; font-size:13px; font-weight:500; color:#94a3b8; cursor:pointer; display:flex; align-items:center; gap:10px;}
+  .navlink:hover{background:rgba(255,255,255,.05); color:#f1f5f9;}
+  .navlink.active{background:var(--indigo-soft); color:#fff; border-right:3px solid var(--indigo);}
+  main{flex:1; padding:32px; max-width:1200px;}
+  h2{margin:0 0 4px; font-size:20px; color:#fff;}
+  .sub{color:#64748b; font-size:13px; margin:0 0 20px;}
+  .panel{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:20px; margin-bottom:20px;}
+  .kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:16px; margin-bottom:20px;}
+  .kpi val{display:block; font-size:26px; font-weight:700; color:#fff;}
+  .kpi label{font-size:12px; color:#64748b;}
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th{text-align:left; color:#64748b; font-size:11px; text-transform:uppercase; padding:8px 12px; border-bottom:1px solid var(--border);}
+  td{padding:10px 12px; border-bottom:1px solid #222842;}
+  tr:hover td{background:rgba(255,255,255,.03);}
+  .pill{display:inline-block; padding:3px 9px; border-radius:99px; font-size:11px; font-weight:600;}
+  .pill-pos{background:var(--emerald-soft); color:var(--emerald);}
+  .pill-warn{background:var(--amber-soft); color:var(--amber);}
+  .pill-bad{background:var(--crimson-soft); color:var(--crimson);}
+  .pill-neu{background:var(--indigo-soft); color:var(--indigo);}
+  input, select{background:#0f1424; border:1px solid var(--border); color:#e2e8f0; border-radius:8px; padding:8px 10px; font-size:13px; width:100%;}
+  label{font-size:11px; color:#64748b; display:block; margin-bottom:4px;}
+  .btn{display:inline-block; padding:9px 18px; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer; border:none;}
+  .btn-primary{background:var(--indigo); color:#fff;}
+  .btn-primary:hover{background:#5457e0;}
+  .btn-ghost{background:rgba(255,255,255,.06); color:#e2e8f0;}
+  .btn-ghost:hover{background:rgba(255,255,255,.12);}
+  .row{display:flex; gap:14px; flex-wrap:wrap; margin-bottom:14px;}
+  .row > div{flex:1; min-width:160px;}
+  .line{display:flex; gap:10px; align-items:end; background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:10px; padding:10px; margin-bottom:8px; flex-wrap:wrap;}
+  .line > div{flex:1; min-width:120px;}
+  .line .rm{cursor:pointer; color:#64748b; padding:8px;}
+  .line .rm:hover{color:var(--crimson);}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>StockSense<span>Inventory Manager</span></h1>
+    <div class="navlink" data-nav="dashboard">📊 Dashboard</div>
+    <div class="navlink" data-nav="products">📦 Products</div>
+    <div class="navlink" data-nav="operations">🔁 New Movement</div>
+    <div class="navlink" data-nav="history">🕘 Move History</div>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<script>
+/* ---------------- DATA LAYER (all in localStorage, no backend) ---------------- */
+const KEY = 'stocksense_data_v1';
+
+function seed(){
+  const locations = [
+    {id:'loc1', name:'Main Warehouse'},
+    {id:'loc2', name:'Production Floor'},
+    {id:'loc3', name:'Rack A'},
+  ];
+  const categories = [
+    {id:'cat1', name:'Raw Materials'},
+    {id:'cat2', name:'Finished Goods'},
+  ];
+  const products = [
+    {id:'p1', name:'Steel Rods', sku:'RM-STEEL-001', category_id:'cat1', unit:'kg'},
+    {id:'p2', name:'Chairs', sku:'FG-CHAIR-001', category_id:'cat2', unit:'unit'},
+  ];
+  const stock = { // key: `${product_id}__${location_id}` -> qty
+    'p1__loc1': 500,
+    'p2__loc3': 20,
+  };
+  return { locations, categories, products, stock, ledger: [], seq: 1 };
+}
+
+function load(){
+  const raw = localStorage.getItem(KEY);
+  return raw ? JSON.parse(raw) : seed();
+}
+function save(db){ localStorage.setItem(KEY, JSON.stringify(db)); }
+
+let db = load();
+if(!localStorage.getItem(KEY)) save(db);
+
+/* ---------------- helpers ---------------- */
+const LOW_STOCK = 10;
+const esc = s => (s??'').toString().replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const loc = id => db.locations.find(l=>l.id===id);
+const cat = id => db.categories.find(c=>c.id===id);
+const prod = id => db.products.find(p=>p.id===id);
+const stockKey = (pid, lid) => `${pid}__${lid}`;
+const getQty = (pid, lid) => db.stock[stockKey(pid, lid)] || 0;
+function setQty(pid, lid, qty){ db.stock[stockKey(pid, lid)] = Math.max(0, qty); }
+function totalQty(pid){ return db.locations.reduce((sum,l)=>sum+getQty(pid,l.id),0); }
+function nextRef(type){
+  const prefix = {Receipt:'RCPT', Delivery:'DLVY', Internal:'INTL', Adjustment:'ADJ'}[type] || 'DOC';
+  return `${prefix}-${String(db.seq++).padStart(5,'0')}`;
+}
+function statusPill(s){ const m={Draft:'pill-neu',Done:'pill-pos',Canceled:'pill-bad'}; return `<span class="pill ${m[s]||'pill-neu'}">${s}</span>`; }
+function typePill(t){ const m={Receipt:'pill-pos',Delivery:'pill-warn',Internal:'pill-neu',Adjustment:'pill-bad'}; return `<span class="pill ${m[t]||'pill-neu'}">${t}</span>`; }
+function qtyPill(q){ if(q===0) return '<span class="pill pill-bad">Out</span>'; if(q<=LOW_STOCK) return `<span class="pill pill-warn">Low · ${q}</span>`; return `<span class="pill pill-pos">${q}</span>`; }
+
+/* ---------------- THE CORE STOCK ENGINE ----------------
+   Mirrors the Postgres trigger from the full version: applies the
+   correct stock delta per document type, blocking negative stock.   */
+function postDocument(doc){
+  // doc = {type, source, dest, items:[{product_id, quantity, counted_quantity}]}
+  // 1. Validate stock will never go negative
+  for(const it of doc.items){
+    if(doc.type === 'Delivery'){
+      if(getQty(it.product_id, doc.source) - it.quantity < 0)
+        return {error:`Insufficient stock: ${prod(it.product_id).name} at ${loc(doc.source).name} (have ${getQty(it.product_id, doc.source)}, need ${it.quantity})`};
+    }
+    if(doc.type === 'Internal'){
+      if(getQty(it.product_id, doc.source) - it.quantity < 0)
+        return {error:`Insufficient stock: ${prod(it.product_id).name} at ${loc(doc.source).name} (have ${getQty(it.product_id, doc.source)}, need ${it.quantity})`};
+    }
+  }
+  // 2. Apply deltas
+  for(const it of doc.items){
+    if(doc.type === 'Receipt'){
+      setQty(it.product_id, doc.dest, getQty(it.product_id, doc.dest) + it.quantity);
+    } else if(doc.type === 'Delivery'){
+      setQty(it.product_id, doc.source, getQty(it.product_id, doc.source) - it.quantity);
+    } else if(doc.type === 'Internal'){
+      setQty(it.product_id, doc.source, getQty(it.product_id, doc.source) - it.quantity);
+      setQty(it.product_id, doc.dest, getQty(it.product_id, doc.dest) + it.quantity);
+    } else if(doc.type === 'Adjustment'){
+      setQty(it.product_id, doc.dest, it.counted_quantity);
+    }
+  }
+  // 3. Record the ledger entry
+  const entry = {
+    id: 'd' + Date.now(),
+    reference: nextRef(doc.type),
+    document_type: doc.type,
+    status: 'Done',
+    source_location_id: doc.source || null,
+    destination_location_id: doc.dest || null,
+    items: doc.items,
+    created_at: new Date().toISOString(),
+  };
+  db.ledger.unshift(entry);
+  save(db);
+  return { ok: true, entry };
+}
+
+/* ---------------- VIEWS ---------------- */
+let view = 'dashboard';
+let opType = 'Receipt';
+let opItems = [{product_id:'', quantity:1, counted_quantity:0}];
+
+function Dashboard(){
+  let total=0, low=0, out=0;
+  db.products.forEach(p => { const q=totalQty(p.id); total+=q; if(q===0) out++; else if(q<=LOW_STOCK) low++; });
+  const pending = 0; // this simple version posts documents immediately, so nothing stays pending
+  const transfers = db.ledger.filter(d=>d.document_type==='Internal').length;
+  const kpi = (label,val) => `<div class="panel kpi"><val>${val}</val><label>${label}</label></div>`;
+  return `
+    <h2>Dashboard</h2><p class="sub">Real-time inventory overview</p>
+    <div class="kpis">
+      ${kpi('Total Stock Units', total)}
+      ${kpi(`Low Stock (≤ ${LOW_STOCK})`, low)}
+      ${kpi('Out of Stock', out)}
+      ${kpi('Pending Documents', pending)}
+      ${kpi('Total Transfers', transfers)}
+    </div>
+    <div class="panel">
+      <h3 style="margin-top:0">Ledger Activity Stream</h3>
+      <table><thead><tr><th>Reference</th><th>Type</th><th>Route</th><th>Items</th><th>Status</th><th>Created</th></tr></thead>
+      <tbody>${db.ledger.slice(0,20).map(d=>`<tr>
+        <td>${esc(d.reference)}</td><td>${typePill(d.document_type)}</td>
+        <td>${loc(d.source_location_id)?.name||'—'} → ${loc(d.destination_location_id)?.name||'—'}</td>
+        <td>${d.items.length} lines</td><td>${statusPill(d.status)}</td>
+        <td>${new Date(d.created_at).toLocaleString()}</td>
+      </tr>`).join('') || `<tr><td colspan="6" style="text-align:center;color:#64748b;padding:24px">No documents yet.</td></tr>`}</tbody></table>
+    </div>`;
+}
+
+function Products(){
+  return `
+    <h2>Product Catalog</h2><p class="sub">${db.products.length} products tracked</p>
+    <div class="panel">
+      <button class="btn btn-primary" id="addProductBtn">+ Add Product</button>
+      <div id="addProductForm" style="display:none; margin-top:16px;">
+        <div class="row">
+          <div><label>Name</label><input id="npName" /></div>
+          <div><label>SKU</label><input id="npSku" /></div>
+          <div><label>Category</label><select id="npCat">${db.categories.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
+          <div><label>Unit</label><input id="npUnit" value="unit" /></div>
+        </div>
+        <button class="btn btn-primary" id="saveProductBtn">Save Product</button>
+        <button class="btn btn-ghost" id="cancelProductBtn">Cancel</button>
+      </div>
+    </div>
+    <div class="panel">
+      <table><thead><tr><th>Product</th><th>SKU</th><th>Category</th><th>Total</th><th>By Location</th></tr></thead>
+      <tbody>${db.products.map(p=>`<tr>
+        <td><b>${esc(p.name)}</b></td><td>${esc(p.sku)}</td><td>${esc(cat(p.category_id)?.name||'—')}</td>
+        <td>${qtyPill(totalQty(p.id))}</td>
+        <td>${db.locations.map(l=>{const q=getQty(p.id,l.id); return q>0?`${esc(l.name)}: <b>${q}</b>`:null;}).filter(Boolean).join(' · ')||'<span style="color:#475569">No stock</span>'}</td>
+      </tr>`).join('')}</tbody></table>
+    </div>`;
+}
+
+function lineItemsHtml(){
+  const isAdj = opType === 'Adjustment';
+  return opItems.map((it,idx)=>`
+    <div class="line">
+      <div><label>Product</label><select data-item="${idx}" data-field="product_id">
+        <option value="">Select…</option>
+        ${db.products.map(p=>`<option value="${p.id}" ${it.product_id===p.id?'selected':''}>${esc(p.name)} (${esc(p.sku)})</option>`).join('')}
+      </select></div>
+      ${isAdj ? `
+        <div><label>System Qty</label><input disabled value="${it.product_id?getQty(it.product_id, document.getElementById('opDest')?.value||''):0}" /></div>
+        <div><label>Counted Qty</label><input type="number" min="0" data-item="${idx}" data-field="counted_quantity" value="${it.counted_quantity}" /></div>
+      ` : `
+        <div><label>Quantity</label><input type="number" min="1" data-item="${idx}" data-field="quantity" value="${it.quantity}" /></div>
+      `}
+      <div class="rm" data-rm="${idx}">✕</div>
+    </div>`).join('');
+}
+
+function Operations(){
+  const needsSource = ['Delivery','Internal'].includes(opType);
+  const needsDest = ['Receipt','Internal','Adjustment'].includes(opType);
+  return `
+    <h2>New Movement</h2><p class="sub">Create a Receipt, Delivery, Internal Transfer, or Adjustment and post it instantly.</p>
+    <div class="panel">
+      <div class="row">
+        <div><label>Document Type</label><select id="opTypeSel">
+          ${['Receipt','Delivery','Internal','Adjustment'].map(t=>`<option value="${t}" ${opType===t?'selected':''}>${t}</option>`).join('')}
+        </select></div>
+        ${needsSource?`<div><label>Source Location</label><select id="opSource"><option value="">Select…</option>${db.locations.map(l=>`<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>`:''}
+        ${needsDest?`<div><label>${opType==='Adjustment'?'Location Counted':'Destination Location'}</label><select id="opDest"><option value="">Select…</option>${db.locations.map(l=>`<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select></div>`:''}
+      </div>
+      <div id="lineItems">${lineItemsHtml()}</div>
+      <button class="btn btn-ghost" id="addLineBtn">+ Add Line</button>
+      <div style="margin-top:16px"><button class="btn btn-primary" id="postBtn">✓ Post Document</button></div>
+      <div id="opError" style="color:var(--crimson); font-size:13px; margin-top:10px;"></div>
+    </div>`;
+}
+
+function History(){
+  return `
+    <h2>Move History</h2><p class="sub">Full audit trail of every stock movement document.</p>
+    <div class="panel">
+      <table><thead><tr><th>Reference</th><th>Type</th><th>Route</th><th>Items</th><th>Status</th><th>Created</th></tr></thead>
+      <tbody>${db.ledger.map(d=>`<tr>
+        <td>${esc(d.reference)}</td><td>${typePill(d.document_type)}</td>
+        <td>${loc(d.source_location_id)?.name||'—'} → ${loc(d.destination_location_id)?.name||'—'}</td>
+        <td>${d.items.length} lines</td><td>${statusPill(d.status)}</td>
+        <td>${new Date(d.created_at).toLocaleString()}</td>
+      </tr>`).join('') || `<tr><td colspan="6" style="text-align:center;color:#64748b;padding:24px">No documents found.</td></tr>`}</tbody></table>
+    </div>`;
+}
+
+/* ---------------- RENDER + EVENTS ---------------- */
+function render(){
+  document.querySelectorAll('.navlink').forEach(el => el.classList.toggle('active', el.dataset.nav===view));
+  const views = {dashboard:Dashboard, products:Products, operations:Operations, history:History};
+  document.getElementById('main').innerHTML = views[view]();
+  wire();
+}
+
+function wire(){
+  if(view==='products'){
+    document.getElementById('addProductBtn').onclick = () => {
+      document.getElementById('addProductForm').style.display='block';
+    };
+    document.getElementById('cancelProductBtn')?.addEventListener('click', () => {
+      document.getElementById('addProductForm').style.display='none';
+    });
+    document.getElementById('saveProductBtn')?.addEventListener('click', () => {
+      const name = document.getElementById('npName').value.trim();
+      const sku = document.getElementById('npSku').value.trim();
+      if(!name || !sku){ alert('Name and SKU are required.'); return; }
+      db.products.push({id:'p'+Date.now(), name, sku, category_id:document.getElementById('npCat').value, unit:document.getElementById('npUnit').value||'unit'});
+      save(db); render();
+    });
+  }
+
+  if(view==='operations'){
+    document.getElementById('opTypeSel').onchange = e => { opType = e.target.value; render(); };
+    document.getElementById('addLineBtn').onclick = () => { opItems.push({product_id:'',quantity:1,counted_quantity:0}); render(); };
+    document.querySelectorAll('[data-item]').forEach(el => el.onchange = e => {
+      const idx = +el.dataset.item, field = el.dataset.field;
+      opItems[idx][field] = field==='product_id' ? el.value : Number(el.value);
+      render();
+    });
+    document.querySelectorAll('[data-rm]').forEach(el => el.onclick = () => {
+      opItems.splice(+el.dataset.rm,1);
+      if(opItems.length===0) opItems=[{product_id:'',quantity:1,counted_quantity:0}];
+      render();
+    });
+    document.getElementById('postBtn').onclick = () => {
+      const source = document.getElementById('opSource')?.value || null;
+      const dest = document.getElementById('opDest')?.value || null;
+      const items = opItems.filter(it=>it.product_id);
+      if(items.length===0){ document.getElementById('opError').textContent='Add at least one line item.'; return; }
+      const result = postDocument({type:opType, source, dest, items});
+      if(result.error){ document.getElementById('opError').textContent = result.error; return; }
+      opItems=[{product_id:'',quantity:1,counted_quantity:0}];
+      view='history'; render();
+    };
+  }
+}
+
+document.querySelectorAll('.navlink').forEach(el => el.onclick = () => {
+  view = el.dataset.nav;
+  opItems=[{product_id:'',quantity:1,counted_quantity:0}]; opType='Receipt';
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
